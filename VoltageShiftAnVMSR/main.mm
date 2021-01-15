@@ -52,6 +52,7 @@ double fourthturbofreq = 0;
 double sixthturbofreq = 0;
 double eightthturbofreq = 0;
 double power_units = 0;
+double time_units = 0;
 uint64 dtsmax = 0;
 uint64 tempoffset = 0;
 bool isUnloadOnEnd = false;
@@ -398,16 +399,42 @@ int showcpuinfo(){
     double powercore = 0;
     bool oclocked = false;
     bool turbodisable = false;
-    double p1power = 0;
-    double p2power = 0;
-    
+    double p1power = 0, p1tau = 0;
+    double p2power = 0, p2tau = 0;
     
     
     
     in.action = AnVMSRActionMethodRDMSR;
     in.param = 0;
-    
-    
+
+    if (power_units == 0){
+    in.msr = 0x606;
+    in.action = AnVMSRActionMethodRDMSR;
+    in.param = 0;
+    ret = IOConnectCallStructMethod(connect,
+                                    AnVMSRActionMethodRDMSR,
+                                    &in,
+                                    sizeof(in),
+                                    &out,
+                                    &outsize
+                                    );
+
+    if (ret != KERN_SUCCESS)
+    {
+        printf("Can't read  0x0606 ");
+        return (1);
+
+
+    }
+
+
+
+    // double power_units = pow(0.5,(double)(out.param &0xf));
+    power_units =pow(0.5,(double)((out.param>>8)&0x1f)) * 10;
+    time_units =pow(0.5,(double)((out.param>>16)&0xf));
+    }
+
+
     if (p1power==0){
         in.msr = 0x610;
         ret = IOConnectCallStructMethod(connect,
@@ -426,8 +453,14 @@ int showcpuinfo(){
             
         }
         p1power = (double)(out.param & 0x7FFF ) / 8;
-        
+        // P1 tau = 2^[21:17] * (1 + [23:22] / 4) * time_units
+        p1tau = (double)(0x1 << (out.param >> 17 & 0x1F)) *
+                (double)((1 + (out.param >> 22 & 0x3)) / 4) *
+                time_units;
         p2power = (double)(out.param >> 32 & 0x7FFF ) / 8;
+        p2tau = (double)(0x1 << (out.param >> 49 & 0x1F)) *
+                ((1 + (out.param >> 54 & 0x3)) / 4) *
+                time_units;
         
         
         
@@ -507,31 +540,6 @@ int showcpuinfo(){
         
     }
     
-    if (power_units == 0){
-    in.msr = 0x606;
-    in.action = AnVMSRActionMethodRDMSR;
-    in.param = 0;
-    ret = IOConnectCallStructMethod(connect,
-                                    AnVMSRActionMethodRDMSR,
-                                    &in,
-                                    sizeof(in),
-                                    &out,
-                                    &outsize
-                                    );
-    
-    if (ret != KERN_SUCCESS)
-    {
-        printf("Can't read  0x0606 ");
-        return (1);
-
-        
-    }
-    
-    
-    
-   // double power_units = pow(0.5,(double)(out.param &0xf));
-    power_units =pow(0.5,(double)((out.param>>8)&0x1f)) * 10;
-    }
     
     if (maxturbofreq == 0){
         in.msr = 0x1AD;
@@ -569,7 +577,7 @@ int showcpuinfo(){
         }
         
         printf("%s %s PL1: %.0fW PL2: %.0fW \n",oclocked?"OC_Locked":"",turbodisable?"Turbo_Disabled":"",p1power,p2power);
-        
+        printf("PL1 tau: %.0fsec PL2 tau: %.0fsec \n",p1tau,p2tau);
     }
     
     
